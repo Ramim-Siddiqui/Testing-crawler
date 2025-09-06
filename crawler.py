@@ -93,7 +93,7 @@ def upsert_repos(conn, repo_rows):
     repo_rows: list of tuples (repo_id (int), name_with_owner, stars, description, language, url)
     """
     sql = """
-    INSERT INTO repositories (repo_id, name_with_owner, stars, description, language, url, last_updated)
+    INSERT INTO repositories (repo_id, name_with_owner, stars, description, language, url)
     VALUES %s
     ON CONFLICT (repo_id) DO UPDATE
       SET stars = EXCLUDED.stars,
@@ -105,6 +105,7 @@ def upsert_repos(conn, repo_rows):
     with conn.cursor() as cur:
         execute_values(cur, sql, repo_rows, template=None, page_size=100)
     conn.commit()
+
 
 def get_state(conn, key):
     with conn.cursor() as cur:
