@@ -102,9 +102,14 @@ def upsert_repos(conn, repo_rows):
           url = EXCLUDED.url,
           last_updated = now()
     """
-    with conn.cursor() as cur:
-        execute_values(cur, sql, repo_rows, template=None, page_size=100)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            execute_values(cur, sql, repo_rows, template=None, page_size=100)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise
+
 
 
 def get_state(conn, key):
