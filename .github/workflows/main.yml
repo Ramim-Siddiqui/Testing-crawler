@@ -1,0 +1,110 @@
+name: Crawl GitHub Stars
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: github_data
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Database connection (the script will read these)
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: github_data
+      # Target number of repos to collect (can be overridden in workflow_dispatch)
+      TARGET_REPOS: 100000
+      # Number of days per slice when searching by created date (1 means daily slices)
+      DAYS_PER_SLICE: 1
+      # Per-page GraphQL query size (max 100)
+      PAGE_SIZE: 100
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps & Python deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Wait for Postgres to be ready
+        run: |
+          # wait until postgres service is responding
+          for i in {1..30}; do
+            pg_isready -h $PGHOST -p $PGPORT -U $PGUSER && break
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Setup DB schema
+        env:
+          PGPASSWORD: ${{ env.PGPASSWORD }}
+        run: |
+          psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f schema.sql
+
+      - name: Run crawler (GraphQL -> Postgres)
+        env:
+          # Use the default token available to Actions (no extra privileges)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PGHOST: ${{ env.PGHOST }}
+          PGPORT: ${{ env.PGPORT }}
+          PGUSER: ${{ env.PGUSER }}
+          PGPASSWORD: ${{ env.PGPASSWORD }}
+          PGDATABASE: ${{ env.PGDATABASE }}
+          TARGET_REPOS: ${{ env.TARGET_REPOS }}
+          DAYS_PER_SLICE: ${{ env.DAYS_PER_SLICE }}
+          PAGE_SIZE: ${{ env.PAGE_SIZE }}
+        run: |
+          python crawler.py
+
+      - name: Export DB to CSV
+        env:
+          PGPASSWORD: ${{ env.PGPASSWORD }}
+        run: |
+          echo "Exporting repositories to repos.csv"
+          psql -h $PGHOST -U $PGUSER -d $PGDATABASE -c "\copy (SELECT repo_id, name_with_owner, stars, last_updated FROM repositories ORDER BY last_updated DESC) TO 'repos.csv' CSV HEADER"
+
+      - name: Upload CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-stars-repos
+          path: repos.csv
+
+      - name: Upload DB dump (optional)
+        env:
+          PGPASSWORD: ${{ env.PGPASSWORD }}
+        run: |
+          pg_dump -h $PGHOST -U $PGUSER -d $PGDATABASE -F c -f db.dump || true
+      - name: Upload DB dump artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-db-dump
+          path: db.dump
