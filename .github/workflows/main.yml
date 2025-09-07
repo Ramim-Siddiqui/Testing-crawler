@@ -33,7 +33,7 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: github_data
       # Target number of repos to collect (can be overridden in workflow_dispatch)
-      TARGET_REPOS: 5000
+      TARGET_REPOS: 100000
       # Number of days per slice when searching by created date (1 means daily slices)
       DAYS_PER_SLICE: 1
       # Per-page GraphQL query size (max 100)
